@@ -681,13 +681,40 @@ void FreeDispatchDevice(void* key) {
     device_data.erase(key);
 }
 
+template <typename T>
+static void LeakDispatchObjects(std::vector<std::unique_ptr<T>>& objects) {
+    for (auto& object : objects) {
+        (void)object.release();
+    }
+    objects.clear();
+}
+
+static void UnhookDevice(DispatchDevice& dev) {
+    for (auto& intercept_vector : dev.intercept_vectors) {
+        intercept_vector.clear();
+    }
+    LeakDispatchObjects(dev.object_dispatch);
+    LeakDispatchObjects(dev.aborted_object_dispatch);
+}
+
+static void UnhookInstace(DispatchInstance& dev) {
+    LeakDispatchObjects(dev.object_dispatch);
+}
+
+
 void FreeAllDispatchObjects() {
     // We use to have a WriteLockGuard here, but ran into threading issues.
     // This function is solely called from the atexit() handler, there shouldn't be anything vulkan related going on any more in any
     // application threads. See https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/10659
     last_used_device.store(nullptr);
-    device_data.clear();
 
+    for (auto& kv : device_data) {
+        UnhookDevice(*kv.second);
+    }
+    for (auto& kv : instance_data) {
+        UnhookInstace(*kv.second);
+    }
+    device_data.clear();
     instance_data.clear();
 }
 
